@@ -1,3 +1,3 @@
-# Terraform: Getting Started (Azure)
+# Terraform: Getting Started Gremlin
 
-Getting Started Example from Terraform Docs, updated to Terraform 12
+Getting Started creating a gremlin graph database in cosmosdb
