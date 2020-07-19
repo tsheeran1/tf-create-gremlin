@@ -1,16 +1,17 @@
 # Configure the provider
 provider "azurerm" {
-  version = "~> 1.33"
+  version = "~> 2.00"
+  features {}
 }
 
 # Common variables
 locals {
-  resource_location = "centralus"
+  resource_location = "northcentralus"
 }
 
 # Create a new resource group
 resource "azurerm_resource_group" "rg" {
-  name     = "myTFResourceGroup"
+  name     = "TFgremlinRG"
   location = local.resource_location
 
   tags = {
@@ -18,94 +19,65 @@ resource "azurerm_resource_group" "rg" {
   }
 }
 
-# Create virtual network
-resource "azurerm_virtual_network" "vnet" {
-  name                = "myTFVnet"
-  address_space       = ["10.0.0.0/16"]
-  location            = local.resource_location
+resource "random_integer" "ri" {
+  min = 10000
+  max = 99999
+}
+
+resource "azurerm_cosmosdb_account" "db_acct" {
+  name                = "tfex-cosmos-db-${random_integer.ri.result}"
+  location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
-}
+  offer_type          = "Standard"
+  kind                = "GlobalDocumentDB"
 
-# Create subnet
-resource "azurerm_subnet" "subnet" {
-  name                 = "myTFSubnet"
-  resource_group_name  = azurerm_resource_group.rg.name
-  virtual_network_name = azurerm_virtual_network.vnet.name
-  address_prefix       = "10.0.1.0/24"
-}
+  enable_automatic_failover = true
 
-# Create public IP
-resource "azurerm_public_ip" "publicip" {
-  name                = "myTFPublicIP"
-  location            = local.resource_location
-  resource_group_name = azurerm_resource_group.rg.name
-  allocation_method   = "Dynamic"
-}
+  consistency_policy {
+    consistency_level         = "BoundedStaleness"
+    max_interval_in_seconds   = 301
+    max_staleness_prefix      = 100001
+  }
+ 
+  geo_location {
+    location          = "southcentralus"
+    failover_priority = 1
+  }
 
-# Create Network Security Group and rule
-resource "azurerm_network_security_group" "nsg" {
-  name                = "myTFNSG"
-  location            = local.resource_location
-  resource_group_name = azurerm_resource_group.rg.name
-
-  security_rule {
-    name                       = "SSH"
-    priority                   = 1001
-    direction                  = "Inbound"
-    access                     = "Allow"
-    protocol                   = "Tcp"
-    source_port_range          = "*"
-    destination_port_range     = "22"
-    source_address_prefix      = "*"
-    destination_address_prefix = "*"
+  geo_location {
+    prefix            = "tfex-cosmost-db-${random_integer.ri.result}-customid"
+    location          = azurerm_resource_group.rg.location
+    failover_priority = 0
   }
 }
 
-# Create network interface
-resource "azurerm_network_interface" "nic" {
-  name                      = "myNIC"
-  location                  = local.resource_location
-  resource_group_name       = azurerm_resource_group.rg.name
-  network_security_group_id = azurerm_network_security_group.nsg.id
-
-  ip_configuration {
-    name                          = "myNICConfg"
-    subnet_id                     = azurerm_subnet.subnet.id
-    private_ip_address_allocation = "dynamic"
-    public_ip_address_id          = azurerm_public_ip.publicip.id
-  }
+resource "azurerm_cosmosdb_gremlin_database" "gr_db" {
+  name                  = "tfex-cosmos-gremlin-db"
+  resource_group_name   = azurerm_cosmosdb_account.db_acct.resource_group_name
+  account_name          = azurerm_cosmosdb_account.db_acct.name
 }
 
-# Create a Linux virtual machine
-resource "azurerm_virtual_machine" "vm" {
-  name                  = "myTFVM"
-  location              = local.resource_location
-  resource_group_name   = azurerm_resource_group.rg.name
-  network_interface_ids = [azurerm_network_interface.nic.id]
-  vm_size               = "Standard_DS1_v2"
+resource "azurerm_cosmosdb_gremlin_graph" "graph" {
+  name                  = "tfex-cosmos-gremlin-graph" 
+  resource_group_name   = azurerm_cosmosdb_account.db_acct.resource_group_name
+  account_name          = azurerm_cosmosdb_account.db_acct.name
+  database_name         = azurerm_cosmosdb_gremlin_database.gr_db.name
+  partition_key_path    = "/Example"
+  throughput            = 400
 
-  storage_os_disk {
-    name              = "myOsDisk"
-    caching           = "ReadWrite"
-    create_option     = "FromImage"
-    managed_disk_type = "Premium_LRS"
+  index_policy {
+    automatic         = true
+    indexing_mode     = "Consistent"
+    included_paths    = ["/*"]
+    excluded_paths    = ["/\"_etag\"/?"]
   }
 
-  storage_image_reference {
-    publisher = "Canonical"
-    offer     = "UbuntuServer"
-    sku       = "16.04.0-LTS"
-    version   = "latest"
+  conflict_resolution_policy {
+    mode                        = "LastWriterWins"
+    conflict_resolution_path    = "/_ts"
   }
 
-  os_profile {
-    computer_name  = "myTFVM"
-    admin_username = "plankton"
-    admin_password = "Password1234!"
-  }
-
-  os_profile_linux_config {
-    disable_password_authentication = false
+  unique_key {
+    paths = ["/definition/id1", "/definition/id2"]
   }
 }
-

@@ -4,6 +4,6 @@ terraform {
     resource_group_name  = "az-devops-terraform-rg"
     storage_account_name = "aztfbackend"
     container_name       = "terraform"
-    key                  = "terraform-getting-started.tfstate"
+    key                  = "tf-create-gremlin.tfstate"
   }
 }
